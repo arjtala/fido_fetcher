@@ -1,4 +1,4 @@
-# URL Fetcher
+# Fido Fetcher
 
 A Rust command-line tool that processes TSV files containing URLs and text, attempts to fetch each URL, and outputs the results to a CSV file with success indicators.
 Features
@@ -116,6 +116,8 @@ Failed requests are marked as unsuccessful in the output CSV but don't stop the 
 Performance
 
 The tool uses async/await for concurrent processing, allowing multiple URLs to be fetched simultaneously. The default concurrency is 10, but this can be adjusted based on your needs and the target servers' capacity.
-License
+
+
+## License
 
 This project is available under the MIT License.
