@@ -359,6 +359,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "clap",
+ "console",
  "csv",
  "futures",
  "indicatif",

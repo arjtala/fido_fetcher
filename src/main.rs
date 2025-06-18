@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use console::style;
 use csv::{ReaderBuilder, WriterBuilder};
 use futures::stream::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -36,6 +37,7 @@ struct Args {
 	timeout: u64,
 
 	/// Skip header row in input file
+	#[arg(long)]
 	no_header: bool,
 
 	/// Log level (error, warn, info, debug, trace)
@@ -54,7 +56,15 @@ struct OutputRecord {
 	url: String,
 	text: String,
 	id: u64,
-	download_successful: bool,
+	successful: bool,
+	http_status: u16,
+}
+
+// New struct to hold the fetch results
+#[derive(Debug)]
+struct FetchResult {
+	successful: bool,
+	status_code: u16,
 }
 
 fn init_tracing(log_level: &str) -> Result<()> {
@@ -93,24 +103,55 @@ fn generate_url_hash(url: &str) -> u64 {
 }
 
 #[instrument(skip(client), fields(url = %url))]
-async fn fetch_url(client: &Client, url: &str) -> bool {
+async fn fetch_url(client: &Client, url: &str) -> FetchResult {
 	let span = span!(Level::DEBUG, "http_request", url = %url);
 	let _enter = span.enter();
 
-	match client.get(url).send().await {
+	// Use HEAD request to check accessibility without downloading content
+	match client.head(url).send().await {
 		Ok(response) => {
 			let status = response.status();
+			let status_code = status.as_u16();
 			let success = status.is_success();
+
 			if success {
-				debug!(status = %status, "Request successful");
+				// Check if it's an image by looking at Content-Type header
+				if let Some(content_type) = response.headers().get("content-type") {
+					if let Ok(content_type_str) = content_type.to_str() {
+						let is_image = content_type_str.starts_with("image/");
+						debug!(status = %status, content_type = content_type_str, is_image = is_image, "HEAD request successful");
+						FetchResult {
+							successful: is_image,
+							status_code,
+						}
+					} else {
+						debug!(status = %status, "Content-Type header not readable");
+						FetchResult {
+							successful: false,
+							status_code,
+						}
+					}
+				} else {
+					debug!(status = %status, "No Content-Type header found");
+					FetchResult {
+						successful: false,
+						status_code,
+					}
+				}
 			} else {
-				warn!(status = %status, "Request failed with non-success status");
+				debug!(status = %status, "Request failed with non-success status");
+				FetchResult {
+					successful: false,
+					status_code,
+				}
 			}
-			success
 		}
 		Err(e) => {
-			warn!(error = %e, "Request failed with error");
-			false
+			info!(error = %e, "HEAD request failed with error");
+			FetchResult {
+				successful: false,
+				status_code: 0, // Use 0 to indicate network/connection error
+			}
 		}
 	}
 }
@@ -206,11 +247,12 @@ async fn process_records(
 	let pb = ProgressBar::new(total_file_size);
 	pb.set_style(
 		ProgressStyle::with_template(
-			"{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec)} (msg)"
+			"{spinner:.green.bold} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes:.green}/{total_bytes:.green} ({bytes_per_sec:.yellow}) {msg}"
 		)
 			.unwrap()
-			.progress_chars("#>-")
+			.progress_chars("█▉▊▋▌▍▎▏ ")
 	);
+
 	pb.set_message("Processing URLs...");
 
 	// Setup HTTP client with timeout
@@ -231,13 +273,46 @@ async fn process_records(
 	let mut buf_writer = BufWriter::new(output_file);
 
 	// Write CSV header
-	buf_writer.write_all(b"url,text,id,download_successful\n").await
+	buf_writer.write_all(b"url,text,id,successful,status\n").await
 		.context("Failed to write CSV header")?;
 	debug!("CSV header written");
 	drop(_enter);
 
 	// Create channel for streaming results to writer
 	let (tx, mut rx) = mpsc::channel::<OutputRecord>(100);
+
+	// Create progress tracking channel
+	let (progress_tx, mut progress_rx) = mpsc::channel::<bool>(100);
+
+	let pb_clone = pb.clone();
+	let progress_handle = tokio::spawn(async move {
+		let mut successful_count = 0u64;
+		let mut total_count = 0u64;
+
+		while let Some(was_successful) = progress_rx.recv().await {
+			total_count += 1;
+			if was_successful {
+				successful_count += 1;
+			}
+
+			let failed_count = total_count - successful_count;
+			let success_rate = if total_count > 0 {
+				(successful_count * 100) / total_count
+			} else {
+				0
+			};
+
+			pb_clone.set_message(format!(
+				"{} {} {} {} ({}% success)",
+				style("✅").green().bold(),
+				style(successful_count).green().bold(),
+				style("❌").red().bold(),
+				style(failed_count).red().bold(),
+				style(success_rate).cyan().bold()
+			));
+		}
+		(successful_count, total_count)
+	});
 
 	// Spawn task to write results as they come in
 	let writer_handle = {
@@ -250,7 +325,7 @@ async fn process_records(
 
 			while let Some(record) = rx.recv().await {
 				total_count += 1;
-				if record.download_successful {
+				if record.successful {
 					successful_count += 1;
 				}
 
@@ -308,6 +383,7 @@ async fn process_records(
 		.map(|record_result| {
 			let client = client.clone();
 			let tx = tx.clone();
+			let progress_tx = progress_tx.clone();
 			let pb = pb.clone();
 			async move {
 				match record_result {
@@ -316,17 +392,21 @@ async fn process_records(
 						pb.set_position(bytes_processed);
 
 						let url_hash = generate_url_hash(&record.url);
-						let download_successful = fetch_url(&client, &record.url).await;
+						let fetch_result = fetch_url(&client, &record.url).await;
 
 						let output_record = OutputRecord {
 							url: record.url,
 							text: record.text,
 							id: url_hash,
-							download_successful,
+							successful: fetch_result.successful,
+							http_status: fetch_result.status_code,
 						};
 
 						if let Err(e) = tx.send(output_record).await {
 							error!(error = %e, "Failed to send record to writer");
+						}
+						if let Err(e) = progress_tx.send(fetch_result.successful).await {
+							error!(error = %e, "Failed to send progress update");
 						}
 					}
 					Err(e) => {
@@ -345,10 +425,22 @@ async fn process_records(
 	let span = span!(Level::DEBUG, "cleanup");
 	let _enter = span.enter();
 	drop(tx);
-	let (successful_count, total_processed) = writer_handle.await
-		.context("Writer tax failed")?;
+	drop(progress_tx);
 
-	pb.finish_with_message("Processing complete!");
+	let (successful_count, total_processed) = writer_handle.await
+		.context("Writer task failed")?;
+	let (_pb_successful, _pb_total) = progress_handle.await
+		.context("Progress tax failed")?;
+
+	pb.finish_with_message(format!(
+		"{} {} {} {} {} ({}% success)",
+		style("🎉 Complete!").green().bold(),
+		style("✅").green().bold(),
+		style(successful_count).green().bold(),
+		style("❌").red().bold(),
+		style(total_processed - successful_count).red().bold(),
+		style(if total_processed > 0 { (successful_count * 100) / total_processed } else { 0 }).cyan().bold()
+	));
 
 	// Print summary
 	let failed_count = total_processed - successful_count;
@@ -370,7 +462,8 @@ async fn process_records(
 		success_rate = success_rate,
 		failure_rate = failure_rate,
 		output_file = %output_path.display(),
-		"📊 Processing Summary"
+		"{} Processing Summary",
+		style("📊").bold()
 	);
 
 	Ok(())

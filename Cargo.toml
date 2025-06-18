@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "url-fetcher"
+name = "fido"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,3 +20,4 @@ futures = "0.3"
 async-stream = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+console = "0.15"
