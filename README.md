@@ -1,4 +1,4 @@
-URL Fetcher
+# URL Fetcher
 
 A Rust command-line tool that processes TSV files containing URLs and text, attempts to fetch each URL, and outputs the results to a CSV file with success indicators.
 Features
@@ -11,7 +11,7 @@ Features
 * Configurable request timeout
 * Comprehensive error handling
 
-Installation
+## Installation
 
 Make sure you have Rust installed, then build the project:
 
@@ -19,13 +19,13 @@ Make sure you have Rust installed, then build the project:
 cargo build --release
 ```
 
-Usage
+## Usage
 
 ```bash
 cargo run -- --input input.tsv --output output.csv
 ```
 
-Command Line Options
+### Command Line Options
 ```
     --input, -i: Path to input TSV file (required)
     --output, -o: Path to output CSV file (required)
@@ -34,7 +34,7 @@ Command Line Options
     --no-header: Skip header row detection (treat first line as data)
 ```
 
-Example
+### Example
 
 ```bash
 # Process a TSV file with custom settings
@@ -47,7 +47,7 @@ cargo run -- -i urls.tsv -o results.csv --no-header
 ./target/release/url-fetcher -i urls.tsv -o results.csv
 ```
 
-Input Format
+### Input Format
 
 The input TSV file should contain at least two tab-separated columns:
 ```
@@ -56,7 +56,8 @@ The input TSV file should contain at least two tab-separated columns:
 ```
 
 The tool automatically detects whether the first row is a header by looking for common header keywords like "url", "link", "text", "description", etc. If the first column of the first row starts with "http", it's treated as data.
-With Header Example (input.tsv):
+
+#### With Header Example (input.tsv):
 ```tsv
 url	text
 https://example.com	Example website
@@ -64,13 +65,14 @@ https://httpbin.org/status/200	Test endpoint
 https://httpbin.org/status/404	This will fail
 ```
 
-Without Header Example (input.tsv):
+#### Without Header Example (input.tsv):
 ```tsv
 https://example.com	Example website
 https://httpbin.org/status/200	Test endpoint
 https://httpbin.org/status/404	This will fail
 ```
-Output Format
+
+### Output Format
 
 The output CSV file contains:
 ```
@@ -79,28 +81,28 @@ The output CSV file contains:
     id: 64-bit hash ID generated from the URL
     download_successful: Boolean indicating if the fetch was successful
 ```
-Example output.csv:
+#### Example output.csv:
 
 ```csv
 url,text,id,download_successful
 https://example.com,Example website,12345678901234567890,true
 https://httpbin.org/status/200,Test endpoint,09876543210987654321,true
 https://httpbin.org/status/404,This will fail,11111111111111111111,false
-``
-Dependencies
-```
-    tokio: Async runtime
-    reqwest: HTTP client for fetching URLs
-    csv: CSV reading and writing
-    serde: Serialization/deserialization
-    clap: Command line argument parsing
-    indicatif: Progress bar
-    anyhow: Error handling
-    sha2: SHA-256 hashing for URL IDs
-    futures: Stream processing utilities
 ```
 
-Error Handling
+## Dependencies
+
+* tokio: Async runtime
+* reqwest: HTTP client for fetching URLs
+* csv: CSV reading and writing
+* serde: Serialization/deserialization
+* clap: Command line argument parsing
+* indicatif: Progress bar
+* anyhow: Error handling
+* sha2: SHA-256 hashing for URL IDs
+* futures: Stream processing utilities
+
+## Error Handling
 
 The tool handles various error conditions:
 ```
