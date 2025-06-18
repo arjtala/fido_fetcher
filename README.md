@@ -3,13 +3,13 @@ URL Fetcher
 A Rust command-line tool that processes TSV files containing URLs and text, attempts to fetch each URL, and outputs the results to a CSV file with success indicators.
 Features
 
-    Reads TSV files with URL and text columns
-    Concurrent HTTP requests with configurable concurrency
-    Progress bar showing real-time download progress
-    Generates unique 64-bit hash IDs for each URL
-    Outputs CSV with success/failure flags
-    Configurable request timeout
-    Comprehensive error handling
+* Reads TSV files with URL and text columns
+* Concurrent HTTP requests with configurable concurrency
+* Progress bar showing real-time download progress
+* Generates unique 64-bit hash IDs for each URL
+* Outputs CSV with success/failure flags
+* Configurable request timeout
+* Comprehensive error handling
 
 Installation
 
@@ -109,7 +109,7 @@ The tool handles various error conditions:
     HTTP errors
     File I/O errors
     Invalid URLs
-``
+```
 Failed requests are marked as unsuccessful in the output CSV but don't stop the processing of other URLs.
 Performance
 
